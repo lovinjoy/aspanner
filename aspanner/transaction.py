@@ -9,6 +9,7 @@ import ujson
 import logging
 import datetime
 
+from google.api_core import exceptions
 from google.protobuf.struct_pb2 import Struct
 from google.cloud import spanner_v1
 
@@ -321,10 +322,20 @@ class Transaction:
         if not self._transaction_read_only and self._transaction and not self._finished:
             if exc_type:
                 try:
+                    await self._db._pool.abandon(self._session)
                     await self.rollback()
                 finally:
                     raise
             else:
-                await self.commit()
+                try:
+                    await self.commit()
+                except exceptions.Aborted:
+                    logger.warning("Spanner transaction aborted")
+                    await self._db._pool.put(self._session)
+                    raise
+                except exceptions.DeadlineExceeded:
+                    logger.warning("Spanner transaction DeadlineExceeded")
+                    await self._db._pool.abandon(self._session)
+                    raise
 
         await self._db._pool.put(self._session)

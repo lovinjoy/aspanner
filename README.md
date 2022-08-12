@@ -60,3 +60,9 @@ or run directly from permission granted VM, follow the tutorials from google.
 
     python3 test.py
     ```
+
+## TODO
+
+    Retry now should be outside transaction with block, like: https://github.com/googleapis/google-cloud-python/blob/92465cbc4d9c0ba251838e9cd17f61d14b470e04/spanner/google/cloud/spanner_v1/session.py#L353
+
+    error in sql while JSON is array.

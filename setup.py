@@ -26,7 +26,7 @@ setup(
 
   author="LovinJoy",
   author_email='technical-committee@lovinjoy.com',
-  url="http://github.com/LovinJoy-TC/aspanner",
+  url="http://github.com/lovinjoy/aspanner",
   license="MIT License",
   install_requires=[
       'google-cloud-spanner>=3.14.0',

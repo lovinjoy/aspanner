@@ -7,14 +7,14 @@ __author__ = 'Zagfai'
 import time
 import base64
 import datetime
+import random
 import logging
 import asyncio
+import argparse
 import google.cloud.spanner_v1 as spanner_v1
+from google.api_core import exceptions
 
 import aspanner
-
-
-args = ('project id', 'instance name', 'database name')
 
 
 async def test_session():
@@ -113,6 +113,114 @@ async def test_transaction():
         print(await txn.read("tb_test_types", cols, None))
         await txn._db._pool.put(txn._session)
         del txn
+
+
+async def test_transaction_aborted_and_session_recycling():
+    async with aspanner.Aspanner(*args) as db:
+        cols = ('id', 'data_int',)
+
+        # Transaction Aborted 
+        async with db.transaction() as txn0:
+            async with db.transaction() as txn1:
+                res0 = await txn0.read("tb_test_types", cols, None)
+                print(f"txn0 read: {res0}")
+
+                res1 = await txn1.read("tb_test_types", cols, None)
+                print(f"txn1 read: {res1}")
+
+                res0[0]['data_int'] = random.randint(1, 100)
+                txn0.update("tb_test_types", cols, res0)
+
+                res1[0]['data_int'] = random.randint(1, 100)
+                txn1.update("tb_test_types", cols, res1)
+
+                print('wksession size:', len(db._pool.working_sessions),
+                      'qsize', db._pool.session_queue.qsize())
+                try:
+                    await txn0.commit()
+                except Exception as e:
+                    print('txn0', e)
+                    assert False
+
+                try:
+                    await txn1.commit()
+                    assert False
+                except exceptions.Aborted as e:
+                    print('txn1', e)
+
+                print(await db.read('tb_test_types', cols, None))
+
+            print('wksession size:', len(db._pool.working_sessions),
+                  'qsize', db._pool.session_queue.qsize())
+
+        print('wksession size:', len(db._pool.working_sessions),
+              'qsize', db._pool.session_queue.qsize())
+
+        # Unknown Errors to rollback
+        try:
+            async with db.transaction() as txn0:
+                raise ValueError("Unexpected Error in transaction")
+                pass
+        except ValueError:
+            pass
+
+        print('wksession size:', len(db._pool.working_sessions),
+              'qsize', db._pool.session_queue.qsize())
+
+        # commit error: exceptions.DeadlineExceeded
+        try:
+            async with db.transaction() as txn0:
+                async with db.transaction() as txn1:
+                    res0 = await txn0.read("tb_test_types", cols, None)
+                    print(f"txn0 read: {res0}")
+
+                    res1 = await txn1.read("tb_test_types", cols, None)
+                    print(f"txn1 read: {res1}")
+
+                    res1[0]['data_int'] = random.randint(1, 100)
+                    txn1.update("tb_test_types", cols, res1)
+        except exceptions.DeadlineExceeded as e:
+            logging.error(f"Exception {e}")
+
+        print('wksession size:', len(db._pool.working_sessions),
+              'qsize', db._pool.session_queue.qsize())
+        assert len(db._pool.working_sessions) == 0
+        assert db._pool.session_queue.qsize() == 0
+
+
+async def test_recycling():
+    async with aspanner.Aspanner(*args) as db:
+        cols = ('id', 'data_int',)
+
+        print('wksession size:', len(db._pool.working_sessions),
+              'qsize', db._pool.session_queue.qsize())
+
+        session = await db.session_create()
+        db._pool.working_sessions[session.name] = session
+
+        print('wksession size:', len(db._pool.working_sessions),
+              'qsize', db._pool.session_queue.qsize())
+        assert len(db._pool.working_sessions) == 1
+
+        print(await db.read('tb_test_types', cols, None))
+        print('wksession size:', len(db._pool.working_sessions),
+              'qsize', db._pool.session_queue.qsize())
+        assert len(db._pool.working_sessions) == 1
+        assert db._pool.session_queue.qsize() == 1
+
+        await asyncio.sleep(33)
+        print(await db.read('tb_test_types', cols, None))
+        print('wksession size:', len(db._pool.working_sessions),
+              'qsize', db._pool.session_queue.qsize())
+        assert len(db._pool.working_sessions) == 1
+        assert db._pool.session_queue.qsize() == 1
+
+        await asyncio.sleep(33)
+        print(await db.read('tb_test_types', cols, None))
+        print('wksession size:', len(db._pool.working_sessions),
+              'qsize', db._pool.session_queue.qsize())
+        assert len(db._pool.working_sessions) == 0
+        assert db._pool.session_queue.qsize() == 1
 
 
 async def test_snapshot():
@@ -292,15 +400,26 @@ async def test_example():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-p", "--project")
+    parser.add_argument("-i", "--instance")
+    parser.add_argument("-d", "--database")
+    args, unknown = parser.parse_known_args()
+    args = (args.project, args.instance, args.database)
+
     async def test():
         await test_session()
         await test_pool()
         await test_transaction()
+        await test_transaction_aborted_and_session_recycling()
+        await test_recycling()
         await test_snapshot()
         await test_sql()
         await test_mutations()
         # await test_single_use_speed_compare()
         await test_single_use()
         await test_example()
+
+        print('Test Done')
 
     asyncio.run(test())

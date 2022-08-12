@@ -6,7 +6,7 @@ __author__ = 'Zagfai'
 __date__ = '2022-06'
 
 
-__version__ = '0.5'
+__version__ = '0.6.1'
 
 from google.cloud.spanner_v1 import param_types
 from google.cloud.spanner_v1.keyset import KeyRange

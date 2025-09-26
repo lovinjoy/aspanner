@@ -6,7 +6,11 @@ In aspanner, client provides database operations and session operations.
 __author__ = 'Zagfai'
 __date__ = '2022-06'
 
+import os
+import grpc
 
+from google.api_core.client_options import ClientOptions
+from google.auth.credentials import AnonymousCredentials
 from google.cloud import spanner_v1
 
 from .session import SessionOperations
@@ -76,7 +80,18 @@ class Aspanner(SessionOperations):
         """
         self._closed = False
 
-        self._client = spanner_v1.services.spanner.SpannerAsyncClient()
+        emulator_host = os.getenv("SPANNER_EMULATOR_HOST", None)
+        if emulator_host:
+            self._client = spanner_v1.services.spanner.SpannerAsyncClient(
+                transport=spanner_v1.services.spanner.transports.SpannerGrpcAsyncIOTransport(
+                    host=emulator_host,
+                    credentials=AnonymousCredentials(),
+                    channel=grpc.aio.insecure_channel(target=emulator_host)
+                )
+            )
+        else:
+            self._client = spanner_v1.services.spanner.SpannerAsyncClient()
+
         self.name_project = f'projects/{project}'
         self.name_instance = f'{self.name_project}/instances/{instance}'
         self.name_database = f'{self.name_instance}/databases/{database}'

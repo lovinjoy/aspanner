@@ -8,6 +8,7 @@ __date__ = '2022-06'
 
 import grpc
 from google.cloud import spanner_v1
+from google.cloud.spanner_v1._helpers import _parse_nullable
 
 
 class AsyncStreamedResultSet(spanner_v1.streamed.StreamedResultSet):
@@ -15,6 +16,8 @@ class AsyncStreamedResultSet(spanner_v1.streamed.StreamedResultSet):
     """
     def __init__(self, iterx, source=None):
         super(AsyncStreamedResultSet, self).__init__(iterx, source)
+        if not hasattr(self, '_source'): # latest StreamedResultSet has no _source attribute
+            self._source = source
         self._current_row = {}  # change row from list to dict
 
     async def _async_consume_next(self):
@@ -67,8 +70,8 @@ class AsyncStreamedResultSet(spanner_v1.streamed.StreamedResultSet):
         width = len(field_types)
         index = len(self._current_row)
         for value in values:
-            self._current_row[fields[index]] = spanner_v1.streamed._parse_value_pb(
-                    value, field_types[index])
+            val = _parse_nullable(value, self._decoders[index])
+            self._current_row[fields[index]] = val
             index += 1
             if index == width:
                 self._rows.append(self._current_row)
